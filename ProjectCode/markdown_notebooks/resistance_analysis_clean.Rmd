@@ -1,0 +1,279 @@
+---
+title: "Genomic Island Analysis Clean"
+author: "Cameron Strachan"
+date: '2019-04-04'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+```
+
+### Summary
+
+When blasting the CARD database at the protein level against the rumen genomes, I noticed that there were 2 proteins with 100% identify both on the same contig for 3 genomes. I decided to take these 3 cotigs and blast them on NCBI at the DNA level, which seemed to hit many pathogens. I took the top 50 hits for each of the 3 contigs, extracted the regions that contained all the alignments and then re-blasted these against the 3 rumen contigs. These revealed the structure of the island. I also checked if this island is in anyt other rumen genomes, but it doesn't appear to be.  
+
+After doing the online blast and then the local blast against the rumen contigs, I have used a combined length cutoff (of all alignments) of 4000 with a percent identity of 80%. This only removed a single contig, which only spanned part of the island from the online blast. Therefore, these should be all the island from NCBI and using the same cut offs, I confirmed that the island is not in any further rumen genomes. 
+
+### Analysis steps
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+set.seed(1)
+island_mapping_ava <- read.delim("~/master/rumen/dataflow/02-blast/resistance_island_mapping_allvall.txt", header=FALSE)
+colnames(island_mapping_ava) <- c("qseqid", "sseqid", "pident", "sstart", "send", "qstart", "qend", "evalue", "bitscore", "score", "qlen", "length", "sseq")
+
+island_mapping_ava$qseqid <- as.character(island_mapping_ava$qseqid)
+island_mapping_ava$sseqid <- as.character(island_mapping_ava$sseqid)
+
+island_mapping_ava <- island_mapping_ava %>%
+  mutate(same = if_else(qseqid == sseqid, "yes", "no")) %>%
+  filter(same != "yes") %>%
+  filter(qseqid != "4309689-submission.assembly_79_resistance_genes") %>%
+  filter(qseqid != "4309680-submission.assembly_52_resistance_genes") %>%
+  filter(qseqid != "RUG782_1_resistance_genes") %>%
+  mutate(same_seq = if_else(pident == 100 & qlen == length, "yes", "no")) %>%
+  filter(same_seq == "yes") %>%
+  group_by(qseqid) %>%
+  mutate(group_num = length(unique(sseqid)) + 1) %>%
+  ungroup() %>%
+  select(qseqid, sseqid, group_num) %>%
+  group_by(qseqid) %>%
+  summarize(group_members = list(sort(c(sseqid, unique(qseqid))))) %>%
+  ungroup() %>%
+  select(-qseqid) %>%
+  distinct()
+
+list_groups <- unique(island_mapping_ava$group_members)
+rep_seqs <- c()
+num_in_group <- c()
+
+for (i in 1:length(list_groups)){
+  group_list <- list_groups[[i]]
+  rnum <- sample(1:length(group_list), 1)
+  rep_seqs <- c(rep_seqs, group_list[[rnum]])
+  num_in_group <- c(num_in_group, length(group_list))
+  
+}
+
+df_rep_seqs <- as.data.frame(cbind(rep_seqs, num_in_group))
+colnames(df_rep_seqs)[1] <- "qseqid"
+
+rem_seqs <- unlist(list_groups)[ !(unlist(list_groups) %in% df_rep_seqs$qseqid)]
+
+island_mapping <- read.delim("~/master/rumen/dataflow/02-blast/resistance_island_mapping2.txt", header=FALSE)
+colnames(island_mapping) <- c("qseqid", "sseqid", "pident", "sstart", "send", "qstart", "qend", "evalue", "bitscore", "score", "qlen", "length", "sseq")
+
+df_agsinst_RUG782 <- island_mapping %>%
+  select(qseqid, sseqid, pident, sstart, send, qstart, qend, bitscore, length) %>%
+  filter(sseqid == "RUG782_1_resistance_genes") %>%
+  mutate(nstart = if_else(sstart < send, sstart, send)) %>%
+  mutate(nsend = if_else(send > sstart, send, sstart)) %>%
+  ungroup() %>%
+  filter(qseqid != "RUG782_1_resistance_genes") %>%
+  group_by(qseqid) %>%
+  mutate(bitscore_sum = sum(bitscore)) %>%
+  ungroup() %>%
+  filter(sstart > 110000) %>%
+  group_by(qseqid, sseqid) %>%
+  mutate(length_sum = sum(length)) %>%
+  ungroup() %>%
+  filter(length_sum > 4000) %>%
+  filter(pident > 80)
+
+# 4000 bp only cuts off a single clone, so I could say top blast hits with that minimum length? could also have a PI of 80%. 
+
+df_agsinst_RUG782_rumen <- df_agsinst_RUG782 %>%
+  filter(qseqid == "4309689-submission.assembly_79_resistance_genes" | qseqid == "4309680-submission.assembly_52_resistance_genes" | qseqid == "RUG782_1_resistance_genes" | qseqid == "4309680-submission.assembly_14" | qseqid == "4309689-submission.assembly_8" |qseqid == "RUG457_28" |qseqid == "RUG457_82" |qseqid == "RUG457_79" |qseqid == "RMG_164_291" | qseqid == "RUG459_26" | qseqid == "RMG_238_348" | qseqid == "RMG_238_348" | qseqid == "RUG459_38" | qseqid == "RUG459_38" | qseqid == "RMG_164_121")
+  
+
+df_agsinst_RUG782 <- df_agsinst_RUG782 %>%
+  full_join(df_rep_seqs) %>%
+  bind_rows(df_agsinst_RUG782_rumen) %>%
+  mutate(remove = qseqid %in% rem_seqs) %>%
+  filter(remove != TRUE) 
+
+df_agsinst_RUG782$newqseqid <- NA
+df_agsinst_RUG782$num_in_group <- as.character(df_agsinst_RUG782$num_in_group)
+df_agsinst_RUG782 <- as.data.frame(df_agsinst_RUG782)
+
+for (j in 1:nrow(df_agsinst_RUG782)) {
+  test <- df_agsinst_RUG782[j, "num_in_group"]
+  if(is.na(test)) {
+    df_agsinst_RUG782[j, "newqseqid"] <- df_agsinst_RUG782[j, "qseqid"]} else {
+      df_agsinst_RUG782[j, "newqseqid"] <- paste(df_agsinst_RUG782[j, "qseqid"], " (", df_agsinst_RUG782[j, "num_in_group"], ")", sep = "")
+    }
+  }
+
+
+
+df_agsinst_RUG782 <- df_agsinst_RUG782 %>%
+  arrange(desc(bitscore_sum))
+  
+
+df_agsinst_RUG782$newqseqid <- gsub("-submission.assembly", "", df_agsinst_RUG782$newqseqid)
+df_agsinst_RUG782$newqseqid <- gsub("_resistance_genes", "", df_agsinst_RUG782$newqseqid)
+
+df_agsinst_RUG782$newqseqid <- factor(df_agsinst_RUG782$newqseqid, levels = unique(as.character(df_agsinst_RUG782$newqseqid)))
+
+df_seq_species_type <- read.csv("~/master/rumen/dataflow/00-meta/resistance_island_seq_origins.csv")
+df_seq_species_type$accession <- as.character(df_seq_species_type$accession)
+
+df_agsinst_RUG782 <- df_agsinst_RUG782 %>%
+  filter(qseqid != "AJ557257.1_1") %>%
+  separate(qseqid, into = c("accession", "rm"), remove = FALSE, sep = "_") %>%
+  inner_join(df_seq_species_type, by = c("accession")) %>%
+  unite(newqseqid2, c("species", "type", "newqseqid"), sep = " | ", remove = FALSE)
+
+
+custom_order <- c("B. xylanisolvens | genome | 4309689_8" ,          "B. xylanisolvens | genome | 4309689_79"  ,   
+"B. thetaiotaomicron | genome | 4309680_14"  ,              "B. thetaiotaomicron | genome | 4309680_52" ,     
+"B. fragilis | MGE | KJ816753.1_1"   ,       "E. rhusiopathiae | MGE | MG812141.1_1 (4)" ,     
+"E. rhusiopathiae | genome | CP014861.1_1 (2)" ,   "E. rhusiopathiae | MGE | KP339868.1_1" ,         
+"S.aureus | genome | CP022893.1_1 (12)"  ,         "S.aureus | MGE | KM281804.1_1 (6)" ,             
+"S. pseudintermedius | genome | CP032682.1_1" ,   "S.aureus | genome | LS483301.1_1"  ,             
+"S. pseudintermedius | genome | CP016073.1_1 (3)", "S.aureus | genome | CP033865.1_1"  ,             
+"S.aureus | genome | LS483316.1_1"    ,            "S.aureus | genome | CP033865.1_2" ,              
+"S.aureus | genome | CP012018.1_1 (5)"    ,        "S.aureus | genome | CP012012.1_1 (6)"  ,         
+"S.aureus | genome | CP005288.1_1"      ,          "C. difficile | genome | CP012325.1_1" ,          
+"S. suis | genome | CP025043.1_1"    ,             "unknown | genome | AP019309.1_1"  ,              
+"S. pyogens | genome | CP032700.1_1"   ,           "S.aureus | genome | LS483319.1_1"   ,            
+"S. suis | genome | KY400496.1_1 (2)"  ,           "S. suis | genome | CP024050.1_1"   ,             
+"S. suis | MGE | KX077898.1_1 (2)"  ,              "S. suis | genome | CP003922.1_1"   ,             
+"S. suis | genome | CP002465.1_1"     ,            "S. suis | phage | FN997652.1_1"  ,               
+"S. suis | MGE | MF616023.1_1"    ,                "S.aureus | genome | CP003194.1_1"  ,             
+"E. faecium | plasmid | LR135281.1_1 (2)"   ,      "E. faecium | plasmid | LR135281.1_1 (3)"  ,      
+"E. faecium | plasmid | CP036156.1_1"      ,       "S. suis | MGE | FR823304.2_1" )
+
+
+
+df_agsinst_RUG782$newqseqid2 <- factor(df_agsinst_RUG782$newqseqid2, levels = custom_order)
+
+df_unique_contigs <- df_agsinst_RUG782 %>%
+  select(qseqid) %>%
+  distinct()
+
+df_group_list <- list()
+j <- 1
+
+for (i in 1:length(list_groups)){
+  
+  df_group <- as.data.frame(list_groups[[i]])
+  colnames(df_group) <- "qseqid"
+  df_group$group <- i
+  df_group_list[[j]] <- df_group
+  j <- j + 1
+  
+}
+
+df_group <- bind_rows(df_group_list)
+
+df_seq_origin <- read.csv("~/master/rumen/dataflow/00-meta/resistance_island_sequences.csv")
+
+df_group_seq_origin <- island_mapping %>%
+  select(qseqid) %>%
+  distinct() %>%
+  separate(qseqid, c("accession", "contig_num"), sep = "_", remove = FALSE) %>%
+  filter(qseqid != "4309689-submission.assembly_79_resistance_genes") %>%
+  filter(qseqid != "4309680-submission.assembly_52_resistance_genes") %>%
+  filter(qseqid != "RUG782_1_resistance_genes") %>%
+  full_join(df_seq_origin) %>%
+  full_join(df_group) %>%
+  arrange(group)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.height=2, fig.width=7}
+library(ggplot2)
+library(ggalt)
+theme_set(theme_classic())
+
+gg <- ggplot(df_agsinst_RUG782, 
+       aes(y = newqseqid2,
+           x = nstart,
+           xend = nsend)) +  
+  geom_dumbbell(size = 0.5,
+                size_x = 0.6, 
+                size_xend = 0.6,
+ aes(colour = pident, colour_x = pident, colour_xend = pident)) +
+  theme_minimal() + 
+  labs(x = "Mapping to RUG782_1",
+       y = "") +
+    theme(text = element_text(size=5)) + 
+  scale_colour_gradient(low = "#CC6142", high = "#6395CC",
+  space = "Lab", na.value = "grey50", guide = "colourbar",
+  aesthetics = "colour")
+  
+
+plot(gg)
+```
+
+
+### Gene diagrams of representative sequences
+
+\newpage
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.height=3.5, fig.width=10}
+library(genoPlotR)
+
+xlims <- list(c(-Inf, Inf), c(-Inf, Inf), c(-Inf, Inf),  c(45000, 0))
+
+df_seg_1 <- dna_seg(read.csv("~/master/rumen/dataflow/00-meta/RUG782.csv"))
+df_seg_2 <- dna_seg(read.csv("~/master/rumen/dataflow/00-meta/4309680.csv")) 
+df_seg_3 <- dna_seg(read.csv("~/master/rumen/dataflow/00-meta/CP022905.csv"))
+df_seg_4 <- dna_seg(read.csv("~/master/rumen/dataflow/00-meta/KP339868.1_1.csv"))
+
+dna_segs <- list(df_seg_1, df_seg_2, df_seg_3, df_seg_4)
+
+names <- c("RUG782", "4309680", "CP022905", "KP339868.1_1")
+names(dna_segs) <- names
+
+comparison1 <- as.comparison(read.csv("~/master/rumen/dataflow/00-meta/RUG782v4309680.csv"))
+comparison2 <- as.comparison(read.csv("~/master/rumen/dataflow/00-meta/4309680vCP022905.csv"))
+comparison3 <- as.comparison(read.csv("~/master/rumen/dataflow/00-meta/CP022905vKP339868.1_1.csv"))
+
+comparisons <- list(comparison1, comparison2, comparison3)
+
+comparisons[[1]]$col <- apply_color_scheme(c(0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6), "grey")
+comparisons[[2]]$col <- apply_color_scheme(c(0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6), "grey")
+comparisons[[3]]$col <- apply_color_scheme(c(0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6), "grey")
+
+plot_gene_map(dna_segs=dna_segs, comparisons=comparisons, xlims=xlims,  dna_seg_scale=TRUE, scale=FALSE)
+
+```
+
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.height=3.5, fig.width=10}
+library(genoPlotR)
+
+xlims <- list(c(-Inf, Inf), c(-Inf, Inf), c(-Inf, Inf),  c(45000, 0), c(-Inf, Inf), c(-Inf, Inf))
+
+df_seg_1 <- dna_seg(read.csv("~/master/rumen/dataflow/00-meta/RUG782.csv"))
+df_seg_2 <- dna_seg(read.csv("~/master/rumen/dataflow/00-meta/4309680.csv")) 
+df_seg_3 <- dna_seg(read.csv("~/master/rumen/dataflow/00-meta/CP022905.csv"))
+df_seg_4 <- dna_seg(read.csv("~/master/rumen/dataflow/00-meta/KP339868.1_1.csv"))
+df_seg_5 <- dna_seg(read.csv("~/master/rumen/dataflow/00-meta/4309680_RibD.csv"))
+df_seg_6 <- dna_seg(read.csv("~/master/rumen/dataflow/00-meta/CP022905_RibD.csv"))
+
+dna_segs <- list(df_seg_1, df_seg_2, df_seg_3, df_seg_4, df_seg_5, df_seg_6)
+
+names <- c("RUG782", "4309680", "CP022905", "KP339868.1_1", "4309680_RibD", "CP022905_RibD")
+names(dna_segs) <- names
+
+comparison1 <- as.comparison(read.csv("~/master/rumen/dataflow/00-meta/RUG782v4309680.csv"))
+comparison2 <- as.comparison(read.csv("~/master/rumen/dataflow/00-meta/4309680vCP022905.csv"))
+comparison3 <- as.comparison(read.csv("~/master/rumen/dataflow/00-meta/CP022905vKP339868.1_1.csv"))
+comparison4 <- as.comparison(read.csv("~/master/rumen/dataflow/00-meta/CP022905vKP339868.1_1.csv")[0,])
+comparison5 <- as.comparison(read.csv("~/master/rumen/dataflow/00-meta/CP022905vKP339868.1_1.csv")[0,])
+
+comparisons <- list(comparison1, comparison2, comparison3, comparison4, comparison5)
+
+comparisons[[1]]$col <- apply_color_scheme(c(0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6), "grey")
+comparisons[[2]]$col <- apply_color_scheme(c(0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6), "grey")
+comparisons[[3]]$col <- apply_color_scheme(c(0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6, 0.4, 0.5, 0.6), "grey")
+
+plot_gene_map(dna_segs=dna_segs, comparisons=comparisons, xlims=xlims,  dna_seg_scale=TRUE, scale=FALSE)
+
+```

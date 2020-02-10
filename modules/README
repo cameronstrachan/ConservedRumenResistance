@@ -1,0 +1,37 @@
+### seq_core
+
+Everything is based on making an object for each file that is going to get modified. This
+object only has 4 attributes:
+
+- The file name
+- The directory name where the file is
+- The output file name
+- The output file directory
+
+Therefore, each time you are going to process a file, you need to make an object that 
+specifies where the file is and where it is going. This ensures that if you are going
+to re-write a file, you need to state it very explicitly. 
+
+Sub-classes of the file object are simply the different file types. The methods can be
+specific to those file types. This means that the functions or scripts are simply
+organized by the file type, which is a generally good organizing strategy. Ex. Store
+all functions that act on a fasta file. 
+
+I set it up this way because in bioinformatics you often run a specific method (program) 
+on an input and then specify the output, which gets fed into the next step of the 
+pipeline. Therefore, the driver script which will make a file object each time something
+is processed in the pipeline, should be very easy to read. 
+
+### seq_scrape
+
+These are simply functions that are used to scrape genomic data from the internet. 
+
+#### seq_gen
+
+These are general functions that are applied to many files simultaneously, such as
+concatenating many files or summarizing a bunch of files into a table.
+
+### ctb_functions
+
+There were functions taken from a git hub account that are used to extract 16s rRNA
+based on HMMs (infernal). 

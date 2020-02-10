@@ -1,0 +1,985 @@
+---
+title: "Genomic Island Analysis Clean"
+author: "Cameron Strachan"
+date: '2019-04-04'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+```
+
+### Summary
+
+This time I took the single contig (4309680_59), because it had a ANT6 on it on my tree, and blasted it. Took the top 50 ncbi hits, added it to the rumen genomes and blast it. 
+
+### Analysis steps
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+set.seed(1)
+
+island_mapping <- read.delim("~/master/rumen/dataflow/02-blast/second_island_single_gene_mapping.txt", header=FALSE)
+colnames(island_mapping) <- c("qseqid", "sseqid", "pident", "sstart", "send", "qstart", "qend", "evalue", "bitscore", "score", "qlen", "length", "sseq")
+
+df_agsinst_RUG782 <- island_mapping %>%
+  select(qseqid, sseqid, pident, sstart, send, qstart, qend, bitscore, length) %>%
+  filter(sseqid == "4309680-submission.assembly_59") %>%
+  mutate(nstart = if_else(sstart < send, sstart, send)) %>%
+  mutate(nsend = if_else(send > sstart, send, sstart)) %>%
+  ungroup() %>%
+  filter(qseqid != "4309680-submission.assembly_59") %>%
+  group_by(qseqid) %>%
+  mutate(bitscore_sum = sum(bitscore)) %>%
+  ungroup() %>%
+  #filter(sstart > 110000) %>%
+  group_by(qseqid, sseqid) %>%
+  mutate(length_sum = sum(length)) %>%
+  ungroup() %>%
+  filter(length_sum > 1000) %>%
+  filter(pident > 80)
+
+
+
+df_agsinst_RUG782_dis <- df_agsinst_RUG782 %>%
+  select(qseqid, bitscore_sum) %>%
+  distinct()
+
+df_reps_seqs <- as.data.frame(table(df_agsinst_RUG782_dis$bitscore_sum)[table(df_agsinst_RUG782_dis$bitscore_sum) > 1])
+
+rep_seqs <- as.numeric(names(table(df_agsinst_RUG782_dis$bitscore_sum)[table(df_agsinst_RUG782_dis$bitscore_sum) > 1]))
+
+colnames(df_reps_seqs)[1] <- "bitscore_sum"
+
+df_agsinst_RUG782$bitscore_sum <- as.numeric(as.integer(df_agsinst_RUG782$bitscore_sum))
+df_reps_seqs$bitscore_sum <- as.numeric(as.character(df_reps_seqs$bitscore_sum))
+
+df_agsinst_RUG782_dis_reps <- df_agsinst_RUG782 %>%
+  inner_join(df_reps_seqs) %>%
+  select(qseqid, bitscore_sum, Freq) %>%
+  distinct()
+
+df_agsinst_RUG782 <- df_agsinst_RUG782 %>%
+  filter(qseqid !=  "CP023544.1" ) %>%
+  filter(qseqid !=  "CP017872.1") %>%
+  filter(qseqid !=  "CP004067.1") %>%
+  filter(qseqid != "CP026615.2") %>%
+  filter(qseqid != "CP026614.2") %>%
+  filter(qseqid != "CP021862.1") 
+
+
+df_orfs <- read.csv("~/master/rumen/dataflow/02-headers/rumen_genomes_island2_pathogens.csv") 
+
+colnames(df_orfs) <- c("qseqid", "header", "file")
+
+df_orfs$file <- NULL
+
+
+df_orfs <- df_orfs %>%
+  separate(header, into = c("rm", "start", "stop", "strand"), sep = "#") %>%
+  select(-rm) %>%
+  separate(qseqid, into = c("qseqid", "gene_num"), sep = "_") 
+
+df_orfs$start <- gsub(" ", "", df_orfs$start)
+df_orfs$stop <- gsub(" ", "", df_orfs$stop)
+
+df_orfs$start <- as.numeric(df_orfs$start)
+df_orfs$stop <- as.numeric(df_orfs$stop)
+
+
+
+df_origins <- read.csv("~/master/rumen/dataflow/00-meta/second_island_origins.csv")
+df_origins$qseqid <- as.character(df_origins$qseqid)
+
+df_agsinst_RUG782$qseqid <- as.character(df_agsinst_RUG782$qseqid)
+
+df_agsinst_RUG782 <- df_agsinst_RUG782 %>%
+  inner_join(df_origins) %>%
+  unite(newqseqid, c("qseqid", "organism"), sep = " | ")
+
+
+df_agsinst_RUG782 <- df_agsinst_RUG782 %>%
+  arrange(desc(bitscore_sum))
+
+df_agsinst_RUG782$newqseqid <- factor(df_agsinst_RUG782$newqseqid, levels = unique(as.character(df_agsinst_RUG782$newqseqid)))
+
+
+
+df_4309680 <- df_orfs %>%
+  filter(qseqid == "4309680-submission.assembly") 
+
+# has aadE-sat4-aphA-3 gene cluster
+
+df_JQ655275 <- df_orfs %>%
+  filter(qseqid == "JQ655275.1") 
+
+
+df_CP019858_sec1 <- df_orfs %>%
+  filter(qseqid == "CP019858.1") %>%
+  filter(start > 361752) %>%
+  filter(stop < 363375)
+
+df_CP019858_sec2 <- df_orfs %>%
+  filter(qseqid == "CP019858.1") %>%
+  filter(start > 1782507) %>%
+  filter(stop < 1783808) %>%
+  mutate(start = start - 1782506) %>%
+  mutate(stop = stop - 1782506) %>%
+  mutate(start = start + 365000) %>%
+  mutate(stop = stop + 365000)
+  
+
+df_CP019858_sec3 <- df_orfs %>%
+  filter(qseqid == "CP019858.1") %>%
+  filter(start > 2160080) %>%
+  filter(stop < 2163170) %>%
+  mutate(start = start - 2160079) %>%
+  mutate(stop = stop - 2160079) %>%
+  mutate(start = start + 367000) %>%
+  mutate(stop = stop + 367000)
+  
+
+df_3new_selected <- bind_rows(df_4309680, df_JQ655275, df_CP019858_sec1, df_CP019858_sec2, df_CP019858_sec3) %>%
+  unite(gene, c("qseqid", "gene_num"), sep = "_")
+
+#write.csv(df_3new_selected, "~/master/rumen/dataflow/00-meta/3new_selected.csv")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.height=3.5, fig.width=7}
+library(ggplot2)
+library(ggalt)
+theme_set(theme_classic())
+
+gg <- ggplot(df_agsinst_RUG782, 
+       aes(y = newqseqid,
+           x = nstart,
+           xend = nsend)) +  
+  geom_dumbbell(size = 0.5,
+                size_x = 0.6, 
+                size_xend = 0.6,
+ aes(colour = pident, colour_x = pident, colour_xend = pident)) +
+  theme_minimal() + 
+  labs(x = "Mapping to RUG782_1",
+       y = "") +
+    theme(text = element_text(size=5)) + 
+  scale_colour_gradient(low = "#CC6142", high = "#6395CC",
+  space = "Lab", na.value = "grey50", guide = "colourbar",
+  aesthetics = "colour")
+  
+
+plot(gg)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+df_agsinst_RUG782_dis_reps
+```
+
+
+### Gene diagrams of representative sequences
+
+\newpage
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.height=2.5, fig.width=10}
+library(genoPlotR)
+
+xlims <- list(c(-Inf, Inf), c(-Inf, Inf), c(-Inf, Inf))
+
+gene_diags <- read.csv("~/master/rumen/dataflow/00-meta/3new_selected.csv")
+
+df_4309680 <- gene_diags[1:7,]
+df_JQ655275 <- gene_diags[10:23,]
+df_CP019858 <- gene_diags[26:31,]
+
+
+df_seg_1 <- dna_seg(df_4309680)
+df_seg_2 <- dna_seg(df_JQ655275) 
+df_seg_3 <- dna_seg(df_CP019858)
+
+dna_segs <- list(df_seg_1, df_seg_3, df_seg_2)
+
+names <- c("4309680", "CP019858", "JQ655275")
+names(dna_segs) <- names
+
+comparison1 <- as.comparison(read.csv("~/master/rumen/dataflow/00-meta/4309680vCP019858.csv"))
+comparison2 <- as.comparison(read.csv("~/master/rumen/dataflow/00-meta/CP019858vJQ655272.csv"))
+
+comparisons <- list(comparison1, comparison2)
+
+comparisons[[1]]$col <- apply_color_scheme(c(0.6, 0.4, 0.5, 0.6, 0.4), "grey")
+comparisons[[2]]$col <- apply_color_scheme(c(0.6, 0.4, 0.5, 0.6, 0.4), "grey")
+
+plot_gene_map(dna_segs=dna_segs, comparisons=comparisons, xlims=xlims,  dna_seg_scale=TRUE, scale=FALSE)
+```
+
+\newpage
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.height=11, fig.width=5}
+df <- read.csv("~/master/rumen/dataflow/02-blast/sub_clade_blast_against_4309680.csv")
+
+df$order <- as.integer(as.character(df$order))
+
+df <- df %>%
+  arrange(desc(order))
+
+df$sseqid <- as.character(df$sseqid)
+
+df$sseqid <- factor(df$sseqid, levels = as.character(df$sseqid))
+
+library(ggplot2)
+
+
+gg <- ggplot(data = df, aes(x=qseqid, y=sseqid, fill=pident)) + 
+  geom_tile() +  
+  scale_fill_gradient(low = "#CC6142", high = "#6395CC",
+                      space = "Lab", na.value = "grey50", guide = "colourbar",
+                      aesthetics = "fill")
+
+
+
+gg
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# clean annotation table
+
+library(stringi)
+
+df <- read.delim("~/master/rumen/dataflow/02-blast/orfs_fig1_fig2_rename_parsed.txt", header=FALSE, comment.char="#")
+df$V2 <- NA
+
+for (i in 1:nrow(df)){
+  if (grepl("Query=", df[i,1])){
+    head <- as.character(df[i,1])
+  } else {
+    df[i,2] <- head}
+  
+}
+
+df <- df[complete.cases(df),]
+
+df$V2 <- gsub("Query= ", "", df$V2)
+
+df$V1 <- as.character(df$V1)
+df$V2 <- as.character(df$V2)
+
+
+df$orf_id <- NA
+df$orf_num <- NA
+df$pident <- NA
+df$e_val <- NA
+df$score <- NA
+df$annotation <- NA
+
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+
+
+
+for (i in 1:nrow(df)){
+  df[i,"orf_num"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V2"]), "_", 2)[[1]])
+  df[i,"orf_id"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V2"]), "_", 2)[[2]])
+  df[i,"pident"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V1"]), " ", 5)[[2]])
+  df[i,"e_val"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V1"]), " ", 5)[[3]])
+  df[i,"score"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V1"]), " ", 5)[[4]])
+  df[i,"annotation"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V1"]), " ", 5)[[5]])
+  
+}
+
+df <- df %>%
+  select(orf_id, orf_num, annotation, pident, e_val, score) %>%
+  separate(annotation, into = c("annotation", "rm"), sep = "\\[") %>%
+  select(-rm)
+
+write.csv(df, "~/master/rumen/dataflow/02-blast/orfs_fig1_fig2_rename_annotationTable.csv", row.names = FALSE)
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.height=10, fig.width=10}
+library(tidyverse)
+
+df <- read.csv("~/master/rumen/dataflow/00-meta/clade_meta_data.csv")
+
+df <- df %>%
+  separate(Sequence, into = c("Genus"), sep = " ") %>%
+  arrange(Genus) %>%
+  filter(Genus != "prf||1405331A") 
+
+df_hun_gen <- read.csv("~/master/rumen/dataflow/00-meta/rumen_genome_genus.csv")
+
+df_hun_gen$file <- as.character(df_hun_gen$file)
+df_hun_gen$genome <- as.character(df_hun_gen$genome)
+
+df_hun_gen$file <- gsub(".fasta", "", df_hun_gen$file) 
+
+df_hun_gen <- df_hun_gen%>%
+  separate(genome, into = c("Genus", "rm"), sep = " ") %>%
+  select(-rm)
+
+df_hun <- df[1:76,] 
+
+colnames(df_hun) <- c("file", "Clade")
+
+
+df_hun <- df_hun %>%
+  inner_join(df_hun_gen) %>%
+  select(-file)
+
+df <- df[76:1347,]
+
+df <- df[!(grepl("^RUG", df$Genus)), ]
+df <- df[!(grepl("hRUG", df$Genus)), ]
+df <- df[!(grepl("^RMG", df$Genus)), ]
+df <- df[!(grepl("^ATCC", df$Genus)), ]
+df <- df[!(grepl("^GCF", df$Genus)), ]
+df <- df[!(grepl("^Candidatus", df$Genus)), ]
+df <- df[!(grepl("^candidate", df$Genus)), ]
+df <- df[!(grepl("^uncultured", df$Genus)), ]
+df <- df[!(grepl("^unclassified", df$Genus)), ]
+df <- df[!(grepl("^bacterium", df$Genus)), ]
+
+df <- bind_rows(df, df_hun)
+
+df_summary <- as.data.frame(table(df$Genus, df$Clade_num)) %>%
+  filter(Freq != 0) %>%
+  group_by(Var2) %>%
+  mutate(total = sum(Freq)) %>%
+  ungroup() %>%
+  mutate(Per = Freq / total)
+
+colnames(df_summary) <- c("genus", "Clade", "Freq", "Total", "Percent")
+
+df_summary$original <- df_summary$genus
+
+df_taxa <- read.csv("~/master/rumen/dataflow/00-meta/taxa_mapping.csv") %>%
+  filter(level == "genus") %>%
+  separate(names, c("domain", "phylum", "class", "order", "family", "genus"), sep = ";") %>%
+  select(-level)
+
+df_genus_merge <- inner_join(df_summary, df_taxa)
+
+#
+
+df_taxa <- df_taxa %>%
+  select(-genus) %>%
+  distinct()
+
+colnames(df_summary)[1] <- c("family")
+
+df_family_merge <- inner_join(df_summary, df_taxa)
+
+#
+
+df_taxa <- df_taxa %>%
+  select(-family) %>%
+  distinct()
+
+colnames(df_summary)[1] <- c("order")
+
+df_order_merge <- inner_join(df_summary, df_taxa)
+
+#
+
+df_taxa <- df_taxa %>%
+  select(-order) %>%
+  distinct()
+
+colnames(df_summary)[1] <- c("class")
+
+df_class_merge <- inner_join(df_summary, df_taxa)
+
+#
+
+df_taxa <- df_taxa %>%
+  select(-class) %>%
+  distinct()
+
+colnames(df_summary)[1] <- c("phylum")
+
+df_pyhlum_merge <- inner_join(df_summary, df_taxa)
+
+#
+
+df_taxa <- bind_rows(df_genus_merge, df_family_merge, df_order_merge, df_class_merge, df_pyhlum_merge)
+
+#
+
+df_summary$phylum <- NULL
+
+df_final <- full_join(df_summary, df_taxa)
+
+df_hand <- read.csv("~/master/rumen/dataflow/00-meta/hand_annotated.csv")
+
+df_hand$original <- gsub(" ", "", df_hand$original)
+df_hand$phylum <- gsub(" ", "", df_hand$phylum)
+df_hand$class <- gsub(" ", "", df_hand$class)
+df_hand$order <- gsub(" ", "", df_hand$order)
+
+df_hand_annotate <- df_final[is.na(df_final$domain),] %>%
+  select(Clade, Freq, Total, Percent, original) %>%
+  inner_join(df_hand)
+
+df_final <- df_final[!(is.na(df_final$domain)),] %>%
+  select(Clade, Freq, Total, Percent, original, phylum, class, order) 
+
+df_final <- bind_rows(df_final, df_hand_annotate)
+
+df_final_phylum <- df_final %>%
+  select(Clade, Freq, phylum, Total) %>%
+  group_by(Clade, phylum) %>% 
+  mutate(phy_sum = sum(Freq)) %>%
+  ungroup() %>%
+  mutate(per = phy_sum / Total) %>%
+  select(-Freq, -Total) %>%
+  distinct() 
+
+
+
+blank_theme <- theme_minimal()+
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.border = element_blank(),
+    panel.grid=element_blank(),
+    axis.ticks = element_blank(),
+    plot.title=element_text(size=14, face="bold")
+  )
+
+colours <- c("#d97b76",
+"#63b94d",
+"#dd4970",
+"#63c89e",
+"#d5433c",
+"#32917c",
+"#c65b27",
+"#478c49",
+"#a1464f",
+"#b4b137",
+"#dc986a",
+"#677629",
+"#dc9636",
+"#aeaf69",
+"#91692c")
+
+pie <- ggplot(df_final_phylum, aes(x="", y=per, fill=phylum))  + geom_bar(stat="identity", width=1) + coord_polar("y", start=0) + 
+  facet_wrap(. ~ Clade)  + blank_theme +
+  theme(axis.text.x=element_blank()) + scale_fill_manual(values=colours) 
+
+pie
+
+
+```
+
+
+
+\newpage
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(printr)
+
+df_print <- df_final %>% 
+  select(Clade, Total) %>%
+  distinct()
+
+as.data.frame(df_print)
+```
+
+\newpage
+
+# clade 7
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+df <- read.csv("~/master/rumen/dataflow/00-meta/clade_meta_data_refined.csv")
+
+df$rumen <- grepl("RUMEN", df$Sequence)
+
+df <- df %>%
+  group_by(Clade_num) %>%
+  mutate(total = length(unique(Sequence))) %>%
+  mutate(nrumen = sum(rumen)) %>%
+  ungroup()
+
+df_sum <- df %>%
+  select(Clade_num, total, nrumen) %>%
+  distinct()
+
+
+df_sum
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.height=10, fig.width=10}
+library(tidyverse)
+
+df <- read.csv("~/master/rumen/dataflow/00-meta/clade_meta_data_refined.csv")
+
+df$rumen <- grepl("RUMEN", df$Sequence)
+
+df <- df %>%
+  group_by(Clade_num) %>%
+  mutate(total = length(unique(Sequence))) %>%
+  mutate(nrumen = sum(rumen)) %>%
+  ungroup() %>%
+  separate(Sequence, into = c("Genus"), sep = " ") %>%
+  arrange(Genus) %>%
+  filter(Genus != "prf||1405331A") 
+
+df_hun_gen <- read.csv("~/master/rumen/dataflow/00-meta/rumen_genome_genus.csv")
+
+df_hun_gen$file <- as.character(df_hun_gen$file)
+df_hun_gen$genome <- as.character(df_hun_gen$genome)
+
+df_hun_gen$file <- gsub(".fasta", "", df_hun_gen$file) 
+
+df_hun_gen <- df_hun_gen%>%
+  separate(genome, into = c("Genus", "rm"), sep = " ") %>%
+  select(-rm)
+
+df_hun <- df[1:75,] 
+
+colnames(df_hun)[1:2] <- c("file", "Clade")
+
+
+df_hun <- df_hun %>%
+  inner_join(df_hun_gen) %>%
+  select(-file)
+
+df <- df[76:1347,]
+
+df <- df[!(grepl("^RUG", df$Genus)), ]
+df <- df[!(grepl("hRUG", df$Genus)), ]
+df <- df[!(grepl("^RMG", df$Genus)), ]
+df <- df[!(grepl("^ATCC", df$Genus)), ]
+df <- df[!(grepl("^GCF", df$Genus)), ]
+df <- df[!(grepl("^Candidatus", df$Genus)), ]
+df <- df[!(grepl("^candidate", df$Genus)), ]
+df <- df[!(grepl("^uncultured", df$Genus)), ]
+df <- df[!(grepl("^unclassified", df$Genus)), ]
+df <- df[!(grepl("^bacterium", df$Genus)), ]
+
+df <- bind_rows(df, df_hun)
+
+df_summary <- as.data.frame(table(df$Genus, df$Clade_num)) %>%
+  filter(Freq != 0) %>%
+  group_by(Var2) %>%
+  mutate(total = sum(Freq)) %>%
+  ungroup() %>%
+  mutate(Per = Freq / total)
+
+colnames(df_summary) <- c("genus", "Clade", "Freq", "Total", "Percent")
+
+df_summary$original <- df_summary$genus
+
+df_taxa <- read.csv("~/master/rumen/dataflow/00-meta/taxa_mapping.csv") %>%
+  filter(level == "genus") %>%
+  separate(names, c("domain", "phylum", "class", "order", "family", "genus"), sep = ";") %>%
+  select(-level)
+
+df_genus_merge <- inner_join(df_summary, df_taxa)
+
+#
+
+df_taxa <- df_taxa %>%
+  select(-genus) %>%
+  distinct()
+
+colnames(df_summary)[1] <- c("family")
+
+df_family_merge <- inner_join(df_summary, df_taxa)
+
+#
+
+df_taxa <- df_taxa %>%
+  select(-family) %>%
+  distinct()
+
+colnames(df_summary)[1] <- c("order")
+
+df_order_merge <- inner_join(df_summary, df_taxa)
+
+#
+
+df_taxa <- df_taxa %>%
+  select(-order) %>%
+  distinct()
+
+colnames(df_summary)[1] <- c("class")
+
+df_class_merge <- inner_join(df_summary, df_taxa)
+
+#
+
+df_taxa <- df_taxa %>%
+  select(-class) %>%
+  distinct()
+
+colnames(df_summary)[1] <- c("phylum")
+
+df_pyhlum_merge <- inner_join(df_summary, df_taxa)
+
+#
+
+df_taxa <- bind_rows(df_genus_merge, df_family_merge, df_order_merge, df_class_merge, df_pyhlum_merge)
+
+#
+
+df_summary$phylum <- NULL
+
+df_final <- full_join(df_summary, df_taxa)
+
+df_hand <- read.csv("~/master/rumen/dataflow/00-meta/hand_annotated.csv")
+
+df_hand$original <- gsub(" ", "", df_hand$original)
+df_hand$phylum <- gsub(" ", "", df_hand$phylum)
+df_hand$class <- gsub(" ", "", df_hand$class)
+df_hand$order <- gsub(" ", "", df_hand$order)
+
+df_hand_annotate <- df_final[is.na(df_final$domain),] %>%
+  select(Clade, Freq, Total, Percent, original) %>%
+  inner_join(df_hand)
+
+df_final <- df_final[!(is.na(df_final$domain)),] %>%
+  select(Clade, Freq, Total, Percent, original, phylum, class, order) 
+
+df_final <- bind_rows(df_final, df_hand_annotate)
+
+df_final_phylum <- df_final %>%
+  select(Clade, Freq, phylum, Total) %>%
+  group_by(Clade, phylum) %>% 
+  mutate(phy_sum = sum(Freq)) %>%
+  ungroup() %>%
+  mutate(per = phy_sum / Total) %>%
+  select(-Freq, -Total) %>%
+  distinct() 
+
+
+
+blank_theme <- theme_minimal()+
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.border = element_blank(),
+    panel.grid=element_blank(),
+    axis.ticks = element_blank(),
+    plot.title=element_text(size=14, face="bold")
+  )
+
+colours <- c("#d97b76",
+"#63b94d",
+"#dd4970",
+"#63c89e",
+"#d5433c",
+"#32917c",
+"#c65b27",
+"#478c49",
+"#a1464f",
+"#b4b137",
+"#dc986a",
+"#677629",
+"#dc9636",
+"#aeaf69",
+"#91692c")
+
+pie <- ggplot(df_final_phylum, aes(x="", y=per, fill=phylum))  + geom_bar(stat="identity", width=1) + coord_polar("y", start=0) + 
+  facet_wrap(. ~ Clade)  + blank_theme +
+  theme(axis.text.x=element_blank()) + scale_fill_manual(values=colours) 
+
+pie
+
+df_check <- df_taxa %>%
+  select(original, Freq) %>%
+  group_by(original) %>%
+  mutate(sum = sum(Freq)) %>%
+  ungroup() %>%
+  select(-Freq) %>%
+  filter(sum > 20) %>%
+  distinct()
+
+df_check1 <- df_taxa %>%
+  filter(Clade == 1) %>%
+  select(original, Freq) %>%
+  group_by(original) %>%
+  mutate(sum = sum(Freq)) %>%
+  ungroup() %>%
+  select(-Freq) %>%
+  filter(sum > 20) %>%
+  distinct()
+
+df_check2 <- df_taxa %>%
+  filter(Clade == 1) %>%
+  select(original, Freq) %>%
+  group_by(original) %>%
+  mutate(sum = sum(Freq)) %>%
+  ungroup() %>%
+  select(-Freq) %>%
+  filter(sum > 20) %>%
+  distinct()
+```
+
+\newpage
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.height=11, fig.width=5}
+df <- read.csv("~/master/rumen/dataflow/02-blast/sub_clade_blast_against_4309680.csv")
+
+df$order <- as.integer(as.character(df$order2))
+
+df <- df %>%
+  arrange(desc(order))
+
+df$sseqid <- as.character(df$sseqid)
+
+df$sseqid <- factor(df$sseqid, levels = as.character(df$sseqid))
+
+library(ggplot2)
+
+
+gg <- ggplot(data = df, aes(x=qseqid, y=sseqid, fill=pident)) + 
+  geom_tile() +  
+  scale_fill_gradient(low = "#CC6142", high = "#6395CC",
+                      space = "Lab", na.value = "grey50", guide = "colourbar",
+                      aesthetics = "fill")
+
+
+
+gg
+```
+
+\newpage
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.height=11, fig.width=5}
+df <- read.csv("~/master/rumen/dataflow/02-blast/sub_clade_blast_against_4309680.csv")
+
+df$order <- as.integer(as.character(df$order3))
+
+df <- df[!(is.na(df$order3)), ]
+
+df <- df %>%
+  arrange(desc(order))
+
+df$sseqid <- as.character(df$sseqid)
+
+df$sseqid <- factor(df$sseqid, levels = as.character(df$sseqid))
+
+library(ggplot2)
+
+
+gg <- ggplot(data = df, aes(x=qseqid, y=sseqid, fill=pident)) + 
+  geom_tile() +  
+  scale_fill_gradient(low = "#CC6142", high = "#6395CC",
+                      space = "Lab", na.value = "grey50", guide = "colourbar",
+                      aesthetics = "fill")
+
+
+
+gg
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+df_seq <- read.table("~/master/rumen/dataflow/03-alignments/ANT6_ncbi_rumen_250_350 extraction - refined.fasta", quote="\"", comment.char="")
+
+df_seq$V1 <- as.character(df_seq$V1)
+
+seq_list <- c()
+
+for (i in 1:nrow(df_seq)){
+  if (substr(df_seq[i,1], 1, 1) == ">"){
+    seq_idx <- i + 1
+    if (substr(df_seq[seq_idx ,1], 354, 354) == "A" && substr(df_seq[seq_idx ,1], 357, 357) == "H" && substr(df_seq[seq_idx ,1], 352, 352) == "L"){
+      seq_list <- c(seq_list, df_seq[i,1])
+    } else {}
+    
+  } else {}
+  
+}
+
+df <- read.csv("~/master/rumen/dataflow/00-meta/clade_meta_data_refined.csv")
+
+df$rumen <- grepl("RUMEN", df$Sequence)
+
+df <- df %>%
+  group_by(Clade_num) %>%
+  mutate(total = length(unique(Sequence))) %>%
+  mutate(nrumen = sum(rumen)) %>%
+  ungroup()
+
+seq_list <- gsub(">", "", seq_list)
+seq_list <- gsub("_", " ", seq_list)
+
+df_seq <- as.data.frame(seq_list)
+colnames(df_seq)[1] <- "Sequence"
+
+df_final <- inner_join(df, df_seq) %>%
+  group_by(Clade_num) %>%
+  mutate(nas = length(unique(Sequence))) %>%
+  ungroup() %>%
+  mutate(per_nas = nas / total)
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# clean annotation table
+
+library(stringi)
+
+df <- read.delim("~/master/rumen/dataflow/02-blast/orf_fig1_fig3_fig4_parsed.txt", header=FALSE, comment.char="#")
+df$V2 <- NA
+
+for (i in 1:nrow(df)){
+  if (grepl("Query=", df[i,1])){
+    head <- as.character(df[i,1])
+  } else {
+    df[i,2] <- head}
+  
+}
+
+df <- df[complete.cases(df),]
+
+df$V2 <- gsub("Query= ", "", df$V2)
+
+df$V1 <- as.character(df$V1)
+df$V2 <- as.character(df$V2)
+
+
+df$orf_id <- NA
+df$orf_num <- NA
+df$pident <- NA
+df$e_val <- NA
+df$score <- NA
+df$annotation <- NA
+
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+
+
+
+for (i in 1:nrow(df)){
+  df[i,"orf_num"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V2"]), "_", 2)[[1]])
+  df[i,"orf_id"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V2"]), "_", 2)[[2]])
+  df[i,"pident"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V1"]), " ", 5)[[2]])
+  df[i,"e_val"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V1"]), " ", 5)[[3]])
+  df[i,"score"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V1"]), " ", 5)[[4]])
+  df[i,"annotation"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V1"]), " ", 5)[[5]])
+  df[i,"orf_id2"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"orf_id"]), "_", 2)[[2]])
+  
+}
+
+rownames(df) <- NULL
+
+df[879:1478, "orf_id2"] <- df[879:1478, "orf_id"]
+
+df <- df %>%
+  select(orf_id2, orf_num, annotation, pident, e_val, score) %>%
+  separate(annotation, into = c("annotation", "rm"), sep = "\\[") %>%
+  select(-rm) 
+
+colnames(df) <- c("Contig Name", "Figure ORF Number", "Annotation", "Percent Identity", "E-value", "Bit Score")
+
+
+
+write.csv(df, "~/master/rumen/dataflow/02-blast/orf_fig1_fig3_fig4_parsed.csv", row.names = FALSE)
+```
+
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# clean annotation table
+
+library(stringi)
+
+df <- read.delim("~/master/rumen/dataflow/02-blast/gene_duplicates_gene_diagram_annotations_parsed.txt", header=FALSE, comment.char="#")
+df$V2 <- NA
+
+for (i in 1:nrow(df)){
+  if (grepl("Query=", df[i,1])){
+    head <- as.character(df[i,1])
+  } else {
+    df[i,2] <- head}
+  
+}
+
+df <- df[complete.cases(df),]
+
+df$V2 <- gsub("Query= ", "", df$V2)
+
+df$V1 <- as.character(df$V1)
+df$V2 <- as.character(df$V2)
+
+
+df$orf_id <- NA
+df$orf_num <- NA
+df$pident <- NA
+df$e_val <- NA
+df$score <- NA
+df$annotation <- NA
+
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+df$V1 <- gsub("  ", " ", df$V1)
+
+
+
+for (i in 1:nrow(df)){
+  df[i,"orf_num"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V2"]), "_", 2)[[1]])
+  df[i,"orf_id"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V2"]), "_", 2)[[2]])
+  df[i,"pident"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V1"]), " ", 5)[[2]])
+  df[i,"e_val"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V1"]), " ", 5)[[3]])
+  df[i,"score"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V1"]), " ", 5)[[4]])
+  df[i,"annotation"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"V1"]), " ", 5)[[5]])
+}
+
+rownames(df) <- NULL
+
+df <- df %>%
+  select(orf_id, orf_num, annotation, pident, e_val, score) %>%
+  separate(annotation, into = c("annotation", "rm"), sep = "\\[") %>%
+  select(-rm) 
+
+colnames(df) <- c("Contig Name", "Figure ORF Number", "Annotation", "Percent Identity", "E-value", "Bit Score")
+
+
+
+write.csv(df, "~/master/rumen/dataflow/02-blast/gene_duplicates_gene_diagram_annotations_parsed.csv", row.names = FALSE)
+```

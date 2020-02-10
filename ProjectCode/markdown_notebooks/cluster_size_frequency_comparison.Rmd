@@ -1,0 +1,320 @@
+---
+title: "Untitled"
+author: "Cameron Strachan"
+date: '2019-09-26'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+library(stringi)
+library(scales)
+```
+
+```{r}
+df <- read.csv('~/master/rumen2/dataflow/03-analysis/compiled_start_stop_wDave.txt')
+
+df <- df %>%
+  mutate(pathogen_centroid = ((pathogen_end_dir - pathogen_start_dir)/2) + pathogen_start_dir) %>%
+  mutate(rumen_centroid = ((rumen_end_dir - rumen_start_dir)/2) + rumen_start_dir) %>%
+  select(-X) %>%
+  distinct()
+
+df_pathogen <- df %>%
+  select(ard, pathogen, pathogen_genome_id, pathogen_centroid, pathogen_start_dir, pathogen_end_dir) %>%
+  distinct() %>%
+  group_by(pathogen, pathogen_genome_id) %>%
+  mutate(num_ards = length(unique(ard))) %>%
+  ungroup() %>%
+  filter(num_ards > 1) %>% 
+  distinct() 
+
+df_pathogen$pathogen_genome_id <- as.character(df_pathogen$pathogen_genome_id)
+
+contigs <- unique(df_pathogen$pathogen_genome_id)
+
+df_contig_list <- list()
+k <- 1
+cluster_num <- 1
+
+for (contig in contigs){
+  
+  cluster_num <- cluster_num + 1
+  
+  df_contig <- df_pathogen %>%
+    filter(pathogen_genome_id == contig) %>% 
+    arrange(pathogen_centroid)
+  
+  
+  
+  for (x in 1:nrow(df_contig)){
+    num_rows =nrow(df_contig)
+    
+    if (x == num_rows){ 
+      df_contig[x, 'cluster'] <- cluster_num
+      next }
+    
+    j <- x + 1
+    one_row_down <- df_contig[j, "pathogen_centroid"]
+    start_plus_10kb <- df_contig[x, "pathogen_centroid"] + 5000
+    
+    if (one_row_down < start_plus_10kb) {
+      df_contig[x, 'cluster'] <- cluster_num
+    } else {
+      cluster_num <- cluster_num + 1
+      df_contig[x, 'cluster'] <- cluster_num
+    }
+    
+    
+    
+  }
+  
+  df_contig_list[[k]] <- df_contig
+  k <- k + 1
+   
+  
+}
+
+df_pathogen_grouped_cluster <- bind_rows(df_contig_list) %>%
+  group_by(pathogen_genome_id, cluster) %>%
+  mutate(cluster_type = list(sort(unique(as.character(ard))))) %>%
+  mutate(num_genes_cluster = length(unique(ard))) %>%
+  mutate(cluster_start = min(pathogen_start_dir)) %>%
+  mutate(cluster_end = max(pathogen_end_dir)) %>% 
+  mutate(cluster_size = cluster_end - cluster_start) %>%
+  ungroup() %>%
+  filter(num_genes_cluster > 1) %>%
+  filter(cluster_size < 8000) 
+
+df_pathogen_grouped_cluster$cluster_type <- as.character(df_pathogen_grouped_cluster$cluster_type)
+df_pathogen_grouped_cluster$cluster_type <- gsub("c\\(", "", df_pathogen_grouped_cluster$cluster_type)
+df_pathogen_grouped_cluster$cluster_type <- gsub("\\)$", "", df_pathogen_grouped_cluster$cluster_type)
+df_pathogen_grouped_cluster$cluster_type <- gsub("\"", "", df_pathogen_grouped_cluster$cluster_type)
+
+df_save_cluster_positions <- df_pathogen_grouped_cluster %>%
+  filter(pathogen == "campylobacter coli" | pathogen == "campylobacter jejuni") %>%
+  filter(cluster_type == "APH(3')-IIIa, tetO" | cluster_type == "APH(3')-IIIa, SAT-4, tetO" | cluster_type == "APH(3')-IIIa, SAT-4") %>%
+  select(pathogen, pathogen_genome_id, cluster_type, cluster_start, cluster_end, cluster_size) %>%
+  distinct()
+
+df_save_cluster_positions$cluster_type <- gsub(", ", "_", df_save_cluster_positions$cluster_type)
+df_save_cluster_positions$file <- gsub(" ", "_", df_save_cluster_positions$pathogen)
+df_save_cluster_positions$file <- paste(df_save_cluster_positions$file, ".fasta", sep = "")
+
+df_save_cluster_ccoli <- df_save_cluster_positions %>%
+  filter(pathogen == "campylobacter coli")
+
+df_save_cluster_cjejuni <- df_save_cluster_positions %>%
+  filter(pathogen == "campylobacter jejuni")
+
+write.csv(df_save_cluster_ccoli, "~/master/rumen2/dataflow/03-analysis/cluster_positions_ccoli.csv")
+write.csv(df_save_cluster_cjejuni, "~/master/rumen2/dataflow/03-analysis/cluster_positions_cjejuni.csv")
+
+df_pathogen_grouped_cluster <- df_pathogen_grouped_cluster %>%
+  select(pathogen, cluster_type, cluster, cluster_size, num_genes_cluster) %>% 
+  group_by(cluster_type, pathogen, cluster_size) %>%
+  mutate(num_clusters = length(unique(cluster))) %>%
+  ungroup() %>%
+  select(-cluster) %>%
+  distinct()
+
+
+##
+
+
+
+df <- read.csv('~/master/rumen2/dataflow/03-analysis/compiled_start_stop_wDave.txt')
+
+df <- df %>%
+  mutate(pathogen_centroid = ((pathogen_end_dir - pathogen_start_dir)/2) + pathogen_start_dir) %>%
+  mutate(rumen_centroid = ((rumen_end_dir - rumen_start_dir)/2) + rumen_start_dir) %>%
+  select(-X) %>%
+  distinct() 
+
+df$rumen_genome_id <- NA
+
+for (i in 1:nrow(df)){
+  df[i,"rumen_genome_id"] <- stri_reverse(str_split_fixed(stri_reverse(df[i,"gene_name"]), "_", 2)[[2]])
+}
+
+df$rumen <- 'rumen'
+
+df_rumen <- df %>%
+  select(ard, rumen, rumen_genome_id, rumen_centroid, rumen_start_dir, rumen_end_dir) %>%
+  distinct() %>%
+  group_by(rumen, rumen_genome_id) %>%
+  mutate(num_ards = length(unique(ard))) %>%
+  ungroup() %>%
+  filter(num_ards > 1) %>% 
+  distinct() 
+
+df_rumen$rumen_genome_id <- as.character(df_rumen$rumen_genome_id)
+
+contigs <- unique(df_rumen$rumen_genome_id)
+
+df_contig_list <- list()
+k <- 1
+cluster_num <- 1
+
+for (contig in contigs){
+  
+  cluster_num <- cluster_num + 1
+  
+  df_contig <- df_rumen %>%
+    filter(rumen_genome_id == contig) %>% 
+    arrange(rumen_centroid)
+  
+  
+  
+  for (x in 1:nrow(df_contig)){
+    num_rows =nrow(df_contig)
+    
+    if (x == num_rows){ 
+      df_contig[x, 'cluster'] <- cluster_num
+      next }
+    
+    j <- x + 1
+    one_row_down <- df_contig[j, "rumen_centroid"]
+    start_plus_10kb <- df_contig[x, "rumen_centroid"] + 5000
+    
+    if (one_row_down < start_plus_10kb) {
+      df_contig[x, 'cluster'] <- cluster_num
+    } else {
+      cluster_num <- cluster_num + 1
+      df_contig[x, 'cluster'] <- cluster_num
+    }
+    
+    
+    
+  }
+  
+  df_contig_list[[k]] <- df_contig
+  k <- k + 1
+  
+  
+}
+
+df_rumen_grouped_cluster <- bind_rows(df_contig_list) %>%
+  group_by(rumen_genome_id, cluster) %>%
+  mutate(cluster_type = list(sort(unique(as.character(ard))))) %>%
+  mutate(num_genes_cluster = length(unique(ard))) %>%
+  mutate(cluster_start = min(rumen_start_dir)) %>%
+  mutate(cluster_end = max(rumen_end_dir)) %>% 
+  mutate(cluster_size = cluster_end - cluster_start) %>%
+  ungroup() %>%
+  filter(num_genes_cluster > 1) %>%
+  filter(cluster_size < 8000)
+
+df_rumen_grouped_cluster$cluster_type <- as.character(df_rumen_grouped_cluster$cluster_type)
+df_rumen_grouped_cluster$cluster_type <- gsub("c\\(", "", df_rumen_grouped_cluster$cluster_type)
+df_rumen_grouped_cluster$cluster_type <- gsub("\\)$", "", df_rumen_grouped_cluster$cluster_type)
+df_rumen_grouped_cluster$cluster_type <- gsub("\"", "", df_rumen_grouped_cluster$cluster_type)
+
+df_rumen_grouped_cluster <- df_rumen_grouped_cluster %>%
+  select(rumen, cluster_type, cluster, cluster_size, num_genes_cluster) %>% 
+  group_by(cluster_type, rumen, cluster_size) %>%
+  mutate(num_clusters = length(unique(cluster))) %>%
+  ungroup() %>%
+  select(-cluster) %>%
+  distinct()
+
+
+#
+
+colnames(df_pathogen_grouped_cluster)[1] <- "source"
+colnames(df_rumen_grouped_cluster)[1] <- "source"
+
+df_final <- bind_rows(df_rumen_grouped_cluster, df_pathogen_grouped_cluster)
+
+df_final_4genes <- df_final %>% 
+  
+  group_by(source) %>%
+  mutate(num_cluster_types = length(unique(cluster_type))) %>%
+  ungroup() %>%
+  
+  group_by(source, cluster_type) %>%
+  mutate(cluster_variants = length(unique(cluster_size))) %>%
+  ungroup() %>%
+  filter(source != " clostridioides difficile dave")
+```
+
+```{r}
+df_plot <- df_final_4genes %>%
+  filter(source != "") %>%
+  distinct() %>%
+  group_by(source, cluster_type) %>%
+  mutate(range_length = max(cluster_size) - min(cluster_size)) %>%
+  ungroup() %>%
+  #select(-cluster_size) %>%
+  distinct() %>%
+  mutate(range_length_cor = if_else(range_length > 100, range_length, as.integer(1))) 
+  
+
+df_plot$num_cluster_types <- as.factor(df_plot$num_cluster_types)
+
+source_levels <- c("campylobacter coli", "campylobacter jejuni", "staphylococcus aureus", "clostridioides difficile", "rumen", "streptococcus pneumoniae")
+
+df_plot$source <- factor(df_plot$source, levels = source_levels)
+```
+
+
+
+
+```{r, fig.height=9, fig.width=15}
+df_plot$num_cluster_log10 <- log10(df_plot$num_clusters)
+
+plot <- ggplot(df_plot, aes(x=reorder(cluster_type ,-cluster_variants))) +
+  theme_gdocs() +
+  geom_point(aes(y = num_cluster_log10, colour = cluster_size),
+             stat = "identity", fill = "lightgrey", size = 4, width = 0.1) +
+  theme(strip.text = element_text(size = 20),
+        axis.text.y = element_text(size = 14), 
+        axis.title.y = element_text(size = 16),
+        axis.text.x = element_text(angle = 90, hjust = 1, size = 14)) +
+  #ylab("Number of time cluster observed") +
+  #xlab("Range in size of cluster") +
+  scale_shape_manual(values=c(15, 16, 17, 18, 7, 9)) + 
+  facet_wrap( ~ source, ncol = 3) + 
+  scale_colour_gradient(low = "#CC6142", high = "#6395CC",
+  space = "Lab", na.value = "grey50", guide = "colourbar",
+  aesthetics = "colour") #+ 
+  #scale_color_brewer(palette = "Paired")
+
+plot
+```
+```{r, fig.height=9, fig.width=15}
+
+df_order <- df_plot %>%
+  select(cluster_type, cluster_variants) %>%
+  distinct() %>%
+  mutate(cluster_variants = as.numeric(cluster_variants)) %>%
+  arrange(desc(cluster_variants)) 
+
+clevels = unique(df_order$cluster_type)
+
+df_plot$cluster_type = factor(df_plot$cluster_type, levels = clevels)
+
+plot <- ggplot(df_plot, aes(x=reorder(source,-cluster_variants))) +
+  theme_gdocs() +
+  geom_point(aes(y = num_clusters, colour = cluster_size),
+             stat = "identity", fill = "lightgrey", size = 4, width = 0.1) +
+  theme(strip.text = element_text(size = 14),
+        axis.text.y = element_text(size = 14), 
+        axis.title.y = element_text(size = 16),
+        axis.text.x = element_text(angle = 90, hjust = 1, size = 14)) +
+  scale_shape_manual(values=c(15, 16, 17, 18, 7, 9)) + 
+  facet_wrap( ~ cluster_type, ncol = 5) + 
+  scale_colour_gradientn(colors = c("#CC6142", "#6395CC"),
+  guide = "colourbar",
+  values = rescale(c(2000, 8000))) + coord_trans(y="log2")
+
+plot
+```

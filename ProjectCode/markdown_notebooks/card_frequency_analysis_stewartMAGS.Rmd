@@ -1,0 +1,146 @@
+---
+title: "Expanded AR rumen transfer analysis"
+author: "Cameron Strachan"
+date: '2019-09-23'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+```
+
+```{r}
+df_card <- read.delim("~/master/rumen2/dataflow/02-blast-out/stewart2019_mags_genes_300_cp_pathogen_mapped_card.txt", header=FALSE)
+df_card2 <- read.delim("~/master/rumen2/dataflow/02-blast-out/stewart2019_mags_genes_300_dave_pathogen_mapped_card.txt", header=FALSE)
+
+df_card <- bind_rows(df_card, df_card2)
+
+colnames(df_card)[1:13] <- c("qseqid", "sseqid", "pident", "sstart", "send", "qstart", "qend", "evalue", "bitscore", "score", "qlen", "length", "sseq")
+
+df_card <- df_card %>%
+  filter(pident > 95) %>%
+  separate(sseqid, into = c("gene", "organism"), sep = "\\[")
+
+df_card$gene <- gsub("_", "", df_card$gene)
+df_card$organism <- gsub("\\]_", "", df_card$organism)
+df_card$organism <- gsub("_", " ", df_card$organism)
+
+df_card <- df_card %>%
+  separate(gene, into = c('rm', "accession", "ARD", "gene"), sep = "\\|")
+```
+
+```{r}
+files <- list.files("~/master/rumen2/dataflow/03-analysis/mags/", pattern = "\\.csv$")
+df_freq_list <- list()
+i <- 1
+
+for (file in files){
+  file_in <- paste("~/master/rumen2/dataflow/03-analysis/mags/", file, sep = "")
+  df_freq <- read.csv(file_in)
+  df_freq$X <- NULL
+  df_freq$file <- file
+  df_freq_list[[i]] <- df_freq
+  i <- i + 1
+}
+
+df_freq <- bind_rows(df_freq_list)
+df_freq$file <- gsub("stewart2019_mags_genes_300_cp_", "", df_freq$file)
+df_freq$file <- gsub("stewart2019_mags_genes_300_dave_", "", df_freq$file)
+df_freq$file <- gsub(".csv", "", df_freq$file)
+df_freq$file <- gsub("_", " ", df_freq$file)
+names(df_freq)[1] <- 'qseqid'
+```
+
+```{r}
+df_genome_count <- read.csv("~/master/rumen2/dataflow/00-meta/stewart_2019_genome_count.csv")
+```
+
+```{r}
+df_card_freq <- inner_join(df_card, df_freq)
+df_card_freq$frequency <- as.numeric(df_card_freq$frequency)
+
+df_card_freq <- df_card_freq %>%
+  group_by(gene, file) %>%
+  mutate(frequency_med = median(frequency)) %>%
+  mutate(num_versions = length(unique(qseqid))) %>%
+  ungroup() %>%
+  group_by(file) %>%
+  mutate(num_genes = length(unique(gene))) %>%
+  ungroup() %>%
+  arrange(desc(num_genes)) %>%
+  inner_join(df_genome_count) %>%
+  mutate(frequency_med_per_genomes = frequency_med / num_genomes)
+  
+
+
+df_card_freq$frequency_med <- as.numeric(df_card_freq$frequency_med)
+df_card_freq$num_versions <- as.factor(df_card_freq$num_versions)
+
+df_card_freq_clean <- df_card_freq %>%
+  select(file, ARD, gene, frequency_med, num_versions, num_genes,  pident, qlen, length, num_genomes) %>%
+  distinct() %>%
+  filter(pident > 50)
+
+colnames(df_card_freq_clean) <- c("Pathogen", "ARD ID", "ARD Name", "Median Frequency of Observed Genes", "Number of Versions of Observed Genes", "Number of ARDs Observed", "Percent Identity", "Query Length", "ARD Length", 'Number of Pathogen Genomes')
+
+write.csv(df_card_freq_clean, "~/master/rumen2/newfigures/df_card_freq_clean.csv")
+```
+
+
+```{r}
+df_card_freq_sub <- df_card_freq %>%
+  filter(file != 'listeria monocytogenes') %>%
+  filter(file != 'clostridioides difficile dave')  %>%
+  filter(file != 'pseudomonas aeruginosa')  %>%
+  filter(pident > 95)
+
+
+df_card_freq_sub$num_versions <- as.numeric(df_card_freq_sub$num_versions)
+df_card_freq_sub$file <- as.character(df_card_freq_sub$file)
+```
+
+```{r}
+df_card_freq_sub$gene <- as.character(df_card_freq_sub$gene)
+gene_levels <- rev(c("vanWG", "vanG", "vanTG", "mefA", "ErmG", "lnuC", 'sul2', "tetA(P)", "tet32", "tet44", "tet(40)", "tetO", "ANT(6)-Ib", "aad(6)", "APH(3')-IIIa", "SAT-4"))
+
+
+
+df_card_freq_sub$gene <- factor(df_card_freq_sub$gene, levels=gene_levels)
+
+genomes <- c("campylobacter coli", "campylobacter jejuni", "staphylococcus aureus", "clostridioides difficile",  "streptococcus pneumoniae", "acinetobacter baumannii")
+
+df_card_freq_sub$file <- factor(df_card_freq_sub$file, levels = genomes)
+
+df_card_freq_sub$frequency_med <- as.numeric((df_card_freq_sub$frequency_med / df_card_freq_sub$num_genomes) *100)
+```
+
+```{r, fig.height=10, fig.width=18}
+scaleFUN <- function(x) sprintf("%.1f", x)
+
+df_card_freq_sub <- df_card_freq_sub %>%
+  unite(title, c("file", "num_genomes"), sep = ': ', remove = FALSE)
+
+plot_freq_wrap <- ggplot(df_card_freq_sub, aes(x=gene)) +
+    theme_gdocs() +
+    geom_point(aes(y = frequency_med, colour = num_versions),
+      stat = "identity", fill = "lightgrey", size = 5) +
+    theme(strip.text = element_text(size = 14),
+          axis.text.y = element_text(size = 14), 
+          axis.title.y = element_text(size = 16),
+          axis.title.x = element_blank(),
+          axis.text.x = element_text(angle = 90, hjust = 1, size = 14)) +
+  ylab("Median Frequency") +
+  facet_wrap(. ~ file, scales = 'free_y', ncol = 2) + 
+  scale_colour_gradient(low = "#CC6142", high = "#6395CC",
+  space = "Lab", na.value = "grey50", guide = "colourbar",
+  aesthetics = "colour") + scale_y_continuous(labels=scaleFUN)
+plot_freq_wrap
+```

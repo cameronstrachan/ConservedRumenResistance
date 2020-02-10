@@ -1,0 +1,26 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.height=2.5, fig.width=10}
+library(genoPlotR)
+
+xlims <- list(c(-Inf, Inf), c(-Inf, Inf))
+
+gene_diags <- read.csv("~/master/rumen2/dataflow/04-tables/campylobacter_coli_plasmid_diagram.csv")
+
+df_4309680 <- gene_diags[1:24,]
+
+df_4309680$name <- as.character(df_4309680$name)
+
+df_seg_1 <- dna_seg(df_4309680, df_4309680)
+
+dna_segs <- list(df_seg_1, df_seg_1)
+
+names <- c("Plasmid", "Plasmid")
+names(dna_segs) <- names
+
+plot_gene_map(dna_segs=dna_segs, xlims=xlims,  dna_seg_scale=TRUE, scale=FALSE)
+```
