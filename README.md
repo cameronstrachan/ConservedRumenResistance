@@ -24,14 +24,14 @@ output file. This was intended to make it easier to follow the steps carried out
 The driver scripts are named P1 - P10 and go in order of the analysis carried out in the
 paper. The file types flow through the numbered folders in dataflow.
 
-Fig 1 - P1/P2
-Supp Fig 1 - P3
-Fig 2 - P4
-Fig 3 - P5
-Supp Fig 3- P6
-Fig 4 - P7/P8/P9
-Fig 5 - P7/P8/P9
-Supp Fig 4 - P10
+Fig 1 - P1/P2  
+Supp Fig 1 - P3  
+Fig 2 - P4  
+Fig 3 - P5  
+Supp Fig 3- P6  
+Fig 4 - P7/P8/P9  
+Fig 5 - P7/P8/P9  
+Supp Fig 4 - P10  
 
 
 ## Intermediate tables and figures
